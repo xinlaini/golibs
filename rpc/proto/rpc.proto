@@ -1,0 +1,22 @@
+syntax = "proto2"
+
+package rpc_proto
+
+message Request {
+	message Metadata {
+	}
+
+	optional Metadata metadata = 1;
+	optional string service_name = 2;
+	optional string method_name = 3;
+	optional bytes request_pb = 4;
+}
+
+message Response {
+	message Metadata {
+	}
+
+	optional Metadata metadata = 1,
+	optional string error = 2;
+	optional bytes response_pb = 3;
+}
