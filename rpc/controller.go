@@ -9,7 +9,9 @@ import (
 	"net/http"
 	"os"
 
+	"github.com/golang/protobuf/proto"
 	xlog "github.com/xinlaini/golibs/log"
+	"github.com/xinlaini/golibs/rpc/proto/gen-go"
 )
 
 type Config struct {
@@ -22,7 +24,7 @@ type Config struct {
 type Controller struct {
 	logger xlog.Logger
 
-	services map[string]service
+	services map[string]*service
 }
 
 func (ctrl *Controller) Serve(port int) error {
@@ -44,24 +46,68 @@ func (ctrl *Controller) Serve(port int) error {
 }
 
 func (ctrl *Controller) handleConn(conn net.Conn) {
-	// If this function is returned, the connection must have lost its integrity.
+	// If this function returns, the connection must have lost its integrity.
 	defer conn.Close()
-	var err error
 
 	for {
 		requestBytes := ctrl.readRequest(conn)
 		if requestBytes == nil {
 			return
 		}
-		responseBytes := ctrl.serveRequest(requestBytes)
-		if responseBytes == nil {
+		response, svc := ctrl.serveRequest(conn, requestBytes[4:])
+		responseBytes, err := proto.Marshal(response)
+		if err != nil {
+			ctrl.logger.Errorf("Failed to marshal response: %s", err)
 			return
+		}
+		responseSize := make([]byte, 4)
+		binary.BigEndian.PutUint32(responseSize, uint32(len(responseBytes)))
+
+		if _, err = conn.Write(responseSize); err != nil {
+			ctrl.logger.Errorf("Failed to write 4 bytes for response size: %s", err)
+			return
+		}
+		if _, err = conn.Write(responseBytes); err != nil {
+			ctrl.logger.Errorf("Failed to write %d bytes for response: %s", err)
+			return
+		}
+		if svc != nil {
+			go svc.log(requestBytes, responseSize, responseBytes)
+		}
 	}
+}
+
+func (ctrl *Controller) serveRequest(conn net.Conn, requestBytes []byte) (*rpc_proto.Response, *service) {
+	request := &rpc_proto.Request{}
+	response := &rpc_proto.Response{}
+
+	var err error
+	if err = proto.Unmarshal(requestBytes, request); err != nil {
+		response.Error = makeErrf("Failed to unmarshal request: %s", err)
+		return response, nil
+	}
+	if request.Metadata == nil {
+		response.Error = makeErr("Request is missing metadata")
+		return response, nil
+	}
+	request.Metadata.ClientAddr = proto.String(conn.RemoteAddr().String())
+	if request.Metadata.ServiceName == nil {
+		response.Error = makeErr("Request.Metadata is missing service_name")
+		return response, nil
+	}
+	svc, found := ctrl.services[request.Metadata.GetServiceName()]
+	if !found {
+		response.Error = makeErrf("Service '%s' is not found", request.Metadata.GetServiceName())
+		return response, nil
+	}
+	svc.serveRequest(request, response)
+	return response, svc
 }
 
 func (ctrl *Controller) readRequest(conn net.Conn) []byte {
 	buf := bytes.NewBuffer(make([]byte, 4))
-	if _, err := io.CopyN(buf, conn, 4); err != nil {
+	var err error
+	if _, err = io.CopyN(buf, conn, 4); err != nil {
 		ctrl.logger.Errorf("Failed to read 4 bytes for request size: %s", err)
 		return nil
 	}
@@ -71,6 +117,9 @@ func (ctrl *Controller) readRequest(conn net.Conn) []byte {
 		return nil
 	}
 	return buf.Bytes()
+}
+
+func (ctrl *Controller) showRPCs(w http.ResponseWriter, req *http.Request) {
 }
 
 func NewController(config Config) (*Controller, error) {
@@ -84,7 +133,7 @@ func NewController(config Config) (*Controller, error) {
 	}
 
 	for name, impl := range config.Services {
-		svc, err := newService(logger, config.BinaryLogDir, name, impl)
+		svc, err := newService(ctrl.logger, config.BinaryLogDir, name, impl)
 		if err != nil {
 			return nil, err
 		}

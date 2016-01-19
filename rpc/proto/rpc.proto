@@ -1,22 +1,26 @@
-syntax = "proto2"
+syntax = "proto2";
 
-package rpc_proto
+package rpc_proto;
+
+message RequestMetadata {
+	optional string client_addr = 1;
+	optional string client_job_name = 2;
+	optional string client_request_id = 3;
+	optional string service_name = 4;
+	optional string method_name = 5;
+	optional int64 timeout_us = 6;
+}
 
 message Request {
-	message Metadata {
-	}
+	optional RequestMetadata metadata = 1;
+	optional bytes request_pb = 2;
+}
 
-	optional Metadata metadata = 1;
-	optional string service_name = 2;
-	optional string method_name = 3;
-	optional bytes request_pb = 4;
+message ResponseMetadata {
 }
 
 message Response {
-	message Metadata {
-	}
-
-	optional Metadata metadata = 1,
-	optional string error = 2;
-	optional bytes response_pb = 3;
+	optional ResponseMetadata metadata = 1;
+	optional bytes response_pb = 2;
+	optional string error = 3;
 }
