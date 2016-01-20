@@ -41,9 +41,6 @@ func NewLogger(stdout, stderr *os.File) Logger {
 	}
 }
 
-// DefaultLogger using usual stdout and stderr.
-func DefaultLogger() Logger { return base }
-
 func suffix() string {
 	if _, file, line, ok := runtime.Caller(2); ok {
 		return fmt.Sprintf("%s:%d]", path.Base(file), line)
@@ -93,7 +90,10 @@ func (l *impl) Panicf(format string, v ...interface{}) {
 	panic("")
 }
 
-var base *impl
+var (
+	DefaultLogger = NewLogger(os.Stdout, os.Stderr)
+	base          = DefaultLogger.(*impl)
+)
 
 func init() {
 	base = NewLogger(os.Stdout, os.Stderr).(*impl)

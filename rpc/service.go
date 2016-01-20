@@ -28,6 +28,7 @@ var (
 type method struct {
 	requestType reflect.Type
 	body        reflect.Value
+	receiver    reflect.Value
 }
 
 type service struct {
@@ -87,8 +88,10 @@ func (svc *service) serveRequest(request *rpc_proto.Request, response *rpc_proto
 		return
 	}
 	var requestPB reflect.Value
-	if request.RequestPb != nil {
-		requestPB := reflect.New(m.requestType)
+	if request.RequestPb == nil {
+		requestPB = reflect.Zero(reflect.PtrTo(m.requestType))
+	} else {
+		requestPB = reflect.New(m.requestType)
 		if err = proto.Unmarshal(request.RequestPb, requestPB.Interface().(proto.Message)); err != nil {
 			response.Error = makePBErrf(
 				"Failed to unmarshal request for '%s.%s': %s",
@@ -110,7 +113,7 @@ func (svc *service) serveRequest(request *rpc_proto.Request, response *rpc_proto
 
 	ch := make(chan []reflect.Value)
 	go func() {
-		ch <- m.body.Call([]reflect.Value{reflect.ValueOf(ctx), requestPB})
+		ch <- m.body.Call([]reflect.Value{m.receiver, reflect.ValueOf(ctx), requestPB})
 	}()
 
 	select {
@@ -153,25 +156,24 @@ func newService(ctrl *Controller, name string, impl interface{}) (*service, erro
 	}
 
 	typ := reflect.TypeOf(impl)
-	if typ.Kind() != reflect.Interface {
-		return nil, fmt.Errorf("'%s.%s' is not an interface", typ.PkgPath(), typ.Name())
-	}
-
-	implValue := reflect.ValueOf(impl)
-	for i := 0; i < implValue.NumMethod(); i++ {
-		m := implValue.Method(i)
-		methodType := m.Type()
-
+	for i := 0; i < typ.NumMethod(); i++ {
+		m := typ.Method(i)
+		if m.PkgPath != "" {
+			// This is unexported method, ignore it.
+			continue
+		}
 		// Validate method signature.
-		if methodType.NumIn() != 2 || methodType.In(0) != serverCtxPtrType || !isPBPtr(methodType.In(1)) {
-			return nil, fmt.Errorf("Method '%s' should take a *rpc.Context and a protobuf pointer", methodType.Name())
+		if m.Type.NumIn() != 3 || m.Type.In(1) != serverCtxPtrType || !isPBPtr(m.Type.In(2)) {
+			continue
 		}
-		if methodType.NumOut() != 1 || methodType.Out(0) != errorType || !isPBPtr(methodType.Out(1)) {
-			return nil, fmt.Errorf("Method '%s' should return a protobuf pointer and an error", methodType.Name())
+		if m.Type.NumOut() != 2 || !isPBPtr(m.Type.Out(0)) || m.Type.Out(1) != errorType {
+			continue
 		}
-		svc.methods[methodType.Name()] = &method{
-			requestType: methodType.In(1).Elem(),
-			body:        m,
+		ctrl.logger.Infof("Will serve method '%s.%s'", name, m.Name)
+		svc.methods[m.Name] = &method{
+			requestType: m.Type.In(2).Elem(),
+			body:        m.Func,
+			receiver:    reflect.ValueOf(impl),
 		}
 	}
 	go svc.logLoop(ctrl.binaryLogDir, name)

@@ -60,7 +60,7 @@ type Client struct {
 	mtxEntries      sync.RWMutex
 	freeConns       chan *connEntry
 	shouldConnect   chan struct{}
-	shouldStop      chan struct{}
+	closed          chan struct{}
 	connectLoopDone chan struct{}
 	logLoopDone     chan struct{}
 	chLog           chan [3][]byte
@@ -108,7 +108,7 @@ func (c *Client) Call(
 
 	response := &rpc_proto.Response{}
 	if err = proto.Unmarshal(responseBytes[4:], response); err != nil {
-		return nil, makeErrf("Faield to unmarshal RPC response: %s", err)
+		return nil, makeErrf("Failed to unmarshal RPC response: %s", err)
 	}
 	ctx.Metadata = response.Metadata
 	if response.Error != nil {
@@ -125,14 +125,30 @@ func (c *Client) Call(
 	return responsePB, nil
 }
 
+func (c *Client) Close() {
+	close(c.closed)
+	<-c.connectLoopDone
+	<-c.logLoopDone
+
+	// Close all the connections.
+	c.mtxEntries.Lock()
+	for _, entry := range c.entries {
+		c.logger.Infof("Closing connection from local port '%s' to '%s'", entry.localPort, c.serviceAddr)
+		entry.conn.Close()
+	}
+	c.mtxEntries.Unlock()
+
+	c.logger.Infof("Client for '%s' to '%s' is closed", c.serviceName, c.serviceAddr)
+}
+
 func (c *Client) log(requestSize, requestBytes, responseBytes []byte) {
 	c.chLog <- [3][]byte{requestSize, requestBytes, responseBytes}
 }
 
 func (c *Client) runNetIO(ctx *ClientContext, requestSize, requestBytes []byte) ([]byte, error) {
 	select {
-	case <-c.shouldStop:
-		return nil, makeErr("Client is shutting down")
+	case <-c.closed:
+		return nil, makeErr("Client is closed")
 	case <-ctx.Done():
 		return nil, makeErr(ctx.Err().Error())
 	case entry := <-c.freeConns:
@@ -169,7 +185,7 @@ func (c *Client) connectWithRetry(opts *ClientOptions) *connEntry {
 	sleep := opts.Retry.Sleep
 	for {
 		select {
-		case <-c.shouldStop:
+		case <-c.closed:
 			return nil
 		default:
 			conn, err := net.Dial("tcp", c.serviceAddr)
@@ -200,7 +216,7 @@ func (c *Client) connectLoop(opts *ClientOptions) {
 
 	for {
 		select {
-		case <-c.shouldStop:
+		case <-c.closed:
 			return
 		case <-c.shouldConnect:
 			entry := c.connectWithRetry(opts)
@@ -238,8 +254,9 @@ func (c *Client) logLoop(binaryLogDir, serviceName string) {
 	next := 0
 	for {
 		select {
-		case <-c.shouldStop:
+		case <-c.closed:
 			if binaryLog != nil {
+				c.logger.Infof("Binary log '%s' is now closed", binaryLog.Name())
 				binaryLog.Close()
 			}
 			return
@@ -291,7 +308,7 @@ func newClient(ctrl *Controller, opts *ClientOptions) (*Client, error) {
 		entries:         make(map[string]*connEntry),
 		freeConns:       make(chan *connEntry, opts.ConnPoolSize),
 		shouldConnect:   make(chan struct{}, opts.ConnPoolSize),
-		shouldStop:      make(chan struct{}),
+		closed:          make(chan struct{}),
 		connectLoopDone: make(chan struct{}),
 		logLoopDone:     make(chan struct{}),
 		chLog:           make(chan [3][]byte),
@@ -328,13 +345,17 @@ func roundtrip(ctx *ClientContext, conn net.Conn, requestSize, requestBytes []by
 	if _, err = conn.Write(requestBytes); err != nil {
 		return nil, makeErrf("Failed to write %d bytes for request: %s", err)
 	}
-	buf := bytes.NewBuffer(make([]byte, 4))
+	buf := bytes.NewBuffer(make([]byte, 0, 4))
 	if _, err = io.CopyN(buf, conn, 4); err != nil {
-		return nil, makeErrf("Failed to read 4 bytes for response size: %s", err)
+		return nil, makeErrf(
+			"Failed to read 4 bytes for response size from '%s': %s",
+			conn.RemoteAddr().String(), err)
 	}
 	responseSize := binary.BigEndian.Uint32(buf.Bytes())
 	if _, err = io.CopyN(buf, conn, int64(responseSize)); err != nil {
-		return nil, makeErrf("Failed to read %d bytes for response: %s", err)
+		return nil, makeErrf(
+			"Failed to read %d bytes for response from '%s': %s",
+			conn.RemoteAddr().String(), err)
 	}
 	return buf.Bytes(), nil
 }
