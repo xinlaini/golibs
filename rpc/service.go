@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"sync"
 	"time"
 
 	"golang.org/x/net/context"
@@ -12,6 +13,10 @@ import (
 	"github.com/golang/protobuf/proto"
 	xlog "github.com/xinlaini/golibs/log"
 	"github.com/xinlaini/golibs/rpc/proto/gen-go"
+)
+
+const (
+	recentCount = 64
 )
 
 var (
@@ -26,15 +31,22 @@ type method struct {
 }
 
 type service struct {
-	logger    xlog.Logger
-	binaryLog *os.File
-	methods   map[string]*method
-	chLog     chan [3][]byte
+	logger         xlog.Logger
+	binaryLog      *os.File
+	methods        map[string]*method
+	chLog          chan [3][]byte
+	recentCalls    [][3][]byte
+	mtxRecentCalls sync.RWMutex
 }
 
 func (svc *service) logLoop() {
+	next := 0
 	for {
 		data := <-svc.chLog
+		svc.mtxRecentCalls.Lock()
+		svc.recentCalls[next] = data
+		svc.mtxRecentCalls.Unlock()
+		next = (next + 1) % recentCount
 		if svc.binaryLog != nil {
 			for i := 0; i < 3; i++ {
 				if _, err := svc.binaryLog.Write(data[i]); err != nil {
@@ -110,14 +122,14 @@ func isPBPtr(typ reflect.Type) bool {
 	return typ.Kind() == reflect.Ptr && typ.Implements(pbMessageType)
 }
 
-func newService(logger xlog.Logger, binaryLogDir, name string, impl interface{}) (*service, error) {
-	binaryLog, err := os.Create(filepath.Join(binaryLogDir, fmt.Sprintf("%s-ingress.log"), name))
+func newService(ctrl *Controller, name string, impl interface{}) (*service, error) {
+	binaryLog, err := os.Create(filepath.Join(ctrl.binaryLogDir, fmt.Sprintf("%s-ingress.log"), name))
 	if err != nil {
 		return nil, err
 	}
 
 	svc := &service{
-		logger:    logger,
+		logger:    ctrl.logger,
 		binaryLog: binaryLog,
 		methods:   make(map[string]*method),
 		chLog:     make(chan [3][]byte),

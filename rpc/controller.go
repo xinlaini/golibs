@@ -3,11 +3,13 @@ package rpc
 import (
 	"bytes"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"io"
 	"net"
 	"net/http"
 	"os"
+	"sync"
 
 	"github.com/golang/protobuf/proto"
 	xlog "github.com/xinlaini/golibs/log"
@@ -22,12 +24,18 @@ type Config struct {
 }
 
 type Controller struct {
-	logger xlog.Logger
+	logger       xlog.Logger
+	binaryLogDir string
 
-	services map[string]*service
+	services   map[string]*service
+	clients    []*Client
+	mtxClients sync.RWMutex
 }
 
 func (ctrl *Controller) Serve(port int) error {
+	if len(ctrl.services) == 0 {
+		return errors.New("No service to serve")
+	}
 	l, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
 	if err != nil {
 		return err
@@ -43,6 +51,17 @@ func (ctrl *Controller) Serve(port int) error {
 		}
 		go ctrl.handleConn(conn)
 	}
+}
+
+func (ctrl *Controller) NewClient(opts ClientOptions) (*Client, error) {
+	c, err := newClient(ctrl, opts)
+	if err != nil {
+		return nil, err
+	}
+	ctrl.mtxClients.Lock()
+	ctrl.clients = append(ctrl.clients, c)
+	ctrl.mtxClients.Unlock()
+	return c, nil
 }
 
 func (ctrl *Controller) handleConn(conn net.Conn) {
@@ -124,7 +143,8 @@ func (ctrl *Controller) showRPCs(w http.ResponseWriter, req *http.Request) {
 
 func NewController(config Config) (*Controller, error) {
 	ctrl := &Controller{
-		logger: config.Logger,
+		logger:       config.Logger,
+		binaryLogDir: config.BinaryLogDir,
 	}
 
 	var err error
@@ -133,7 +153,7 @@ func NewController(config Config) (*Controller, error) {
 	}
 
 	for name, impl := range config.Services {
-		svc, err := newService(ctrl.logger, config.BinaryLogDir, name, impl)
+		svc, err := newService(ctrl, name, impl)
 		if err != nil {
 			return nil, err
 		}
