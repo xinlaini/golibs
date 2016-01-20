@@ -12,11 +12,10 @@ import (
 
 	"github.com/golang/protobuf/proto"
 	xlog "github.com/xinlaini/golibs/log"
-	"github.com/xinlaini/golibs/rpc/proto/gen-go"
 )
 
 const (
-	recentCount = 64
+	recentIngressCount = 64
 )
 
 var (
@@ -32,27 +31,40 @@ type method struct {
 
 type service struct {
 	logger         xlog.Logger
-	binaryLog      *os.File
 	methods        map[string]*method
 	chLog          chan [3][]byte
-	recentCalls    [][3][]byte
+	recentCalls    [recentIngressCount][3][]byte
 	mtxRecentCalls sync.RWMutex
 }
 
-func (svc *service) logLoop() {
+func (svc *service) logLoop(binaryLogDir, name string) {
+	var (
+		binaryLog *os.File
+		err       error
+	)
+	if binaryLogDir != "" {
+		logName := filepath.Join(binaryLogDir, fmt.Sprintf("%s-ingress.log", name))
+		binaryLog, err = os.Create(logName)
+		if err != nil {
+			svc.logger.Errorf("Failed to create binary log '%s': %s", logName, err)
+		}
+	}
+
 	next := 0
 	for {
 		data := <-svc.chLog
 		svc.mtxRecentCalls.Lock()
 		svc.recentCalls[next] = data
 		svc.mtxRecentCalls.Unlock()
-		next = (next + 1) % recentCount
-		if svc.binaryLog != nil {
+		next = (next + 1) % recentIngressCount
+		if binaryLog != nil {
 			for i := 0; i < 3; i++ {
-				if _, err := svc.binaryLog.Write(data[i]); err != nil {
-					svc.logger.Errorf("Failed to write to %s, it's now closed and may be compromised: %s", svc.binaryLog.Name(), err)
-					svc.binaryLog.Close()
-					svc.binaryLog = nil
+				if _, err := binaryLog.Write(data[i]); err != nil {
+					svc.logger.Errorf(
+						"Failed to write to '%s', it's now closed and may be compromised: %s",
+						binaryLog.Name(), err)
+					binaryLog.Close()
+					binaryLog = nil
 					break
 				}
 			}
@@ -69,14 +81,19 @@ func (svc *service) serveRequest(request *rpc_proto.Request, response *rpc_proto
 	}
 	m, found := svc.methods[reqMeta.GetMethodName()]
 	if !found {
-		response.Error = makeErrf("Method '%s.%s' is not found", reqMeta.GetServiceName(), reqMeta.GetMethodName())
+		response.Error = makeErrf(
+			"Method '%s.%s' is not found", reqMeta.GetServiceName(), reqMeta.GetMethodName())
 		return
 	}
 	var requestPB reflect.Value
 	if request.RequestPb != nil {
 		requestPB := reflect.New(m.requestType)
 		if err = proto.Unmarshal(request.RequestPb, requestPB.Interface().(proto.Message)); err != nil {
-			response.Error = makeErrf("Failed to unmarshal request for '%s.%s': %s", reqMeta.GetServiceName(), reqMeta.GetMethodName(), err)
+			response.Error = makeErrf(
+				"Failed to unmarshal request for '%s.%s': %s",
+				reqMeta.GetServiceName(),
+				reqMeta.GetMethodName(),
+				err)
 			return
 		}
 	}
@@ -100,7 +117,11 @@ func (svc *service) serveRequest(request *rpc_proto.Request, response *rpc_proto
 		if callResults[1].IsNil() {
 			if !callResults[0].IsNil() {
 				if response.ResponsePb, err = proto.Marshal(callResults[0].Interface().(proto.Message)); err != nil {
-					response.Error = makeErrf("Failed to marshal response for '%s.%s': %s", reqMeta.GetServiceName(), reqMeta.GetMethodName(), err)
+					response.Error = makeErrf(
+						"Failed to marshal response for '%s.%s': %s",
+						reqMeta.GetServiceName(),
+						reqMeta.GetMethodName(),
+						err)
 					return
 				}
 			}
@@ -109,7 +130,8 @@ func (svc *service) serveRequest(request *rpc_proto.Request, response *rpc_proto
 			response.Error = proto.String(callResults[1].Interface().(error).Error())
 		}
 	case <-ctx.Done():
-		response.Error = makeErrf("Method '%s.%s' timed out", reqMeta.GetServiceName(), reqMeta.GetMethodName())
+		response.Error = makeErrf(
+			"Method '%s.%s' timed out", reqMeta.GetServiceName(), reqMeta.GetMethodName())
 		return
 	}
 }
@@ -123,16 +145,10 @@ func isPBPtr(typ reflect.Type) bool {
 }
 
 func newService(ctrl *Controller, name string, impl interface{}) (*service, error) {
-	binaryLog, err := os.Create(filepath.Join(ctrl.binaryLogDir, fmt.Sprintf("%s-ingress.log"), name))
-	if err != nil {
-		return nil, err
-	}
-
 	svc := &service{
-		logger:    ctrl.logger,
-		binaryLog: binaryLog,
-		methods:   make(map[string]*method),
-		chLog:     make(chan [3][]byte),
+		logger:  ctrl.logger,
+		methods: make(map[string]*method),
+		chLog:   make(chan [3][]byte),
 	}
 
 	typ := reflect.TypeOf(impl)
@@ -157,6 +173,6 @@ func newService(ctrl *Controller, name string, impl interface{}) (*service, erro
 			body:        m,
 		}
 	}
-	go svc.logLoop()
+	go svc.logLoop(ctrl.binaryLogDir, name)
 	return svc, nil
 }
