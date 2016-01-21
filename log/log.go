@@ -98,12 +98,12 @@ func (l *impl) Errorf(format string, v ...interface{}) {
 
 // Fatal log.
 func (l *impl) Fatal(v ...interface{}) {
-	l.lfatal.Println(l.suffix(), fmt.Sprint(v...))
+	l.lfatal.Fatalln(l.suffix(), fmt.Sprint(v...))
 }
 
 // Fatalf log.
 func (l *impl) Fatalf(format string, v ...interface{}) {
-	l.lfatal.Println(l.suffix(), fmt.Sprintf(format, v...))
+	l.lfatal.Fatalln(l.suffix(), fmt.Sprintf(format, v...))
 }
 
 // Panic log.
