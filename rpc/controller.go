@@ -5,7 +5,7 @@ import (
 	"os"
 	"sync"
 
-	xlog "github.com/xinlaini/golibs/log"
+	"github.com/xinlaini/golibs/log"
 )
 
 type Config struct {

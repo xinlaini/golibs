@@ -14,9 +14,10 @@ import (
 	"sync"
 	"time"
 
+	"gen/pb/rpc"
+
 	"github.com/golang/protobuf/proto"
-	xlog "github.com/xinlaini/golibs/log"
-	"github.com/xinlaini/golibs/rpc/proto/gen-go"
+	"github.com/xinlaini/golibs/log"
 )
 
 const (

@@ -3,7 +3,7 @@ package rpc
 import (
 	"golang.org/x/net/context"
 
-	"github.com/xinlaini/golibs/rpc/proto/gen-go"
+	"gen/pb/rpc"
 )
 
 type ServerContext struct {
