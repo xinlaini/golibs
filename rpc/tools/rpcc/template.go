@@ -2,6 +2,7 @@ package main
 
 const tmpl = `package {{.Package}}
 
+import "reflect"
 {{range .Import}}import{{if .As}} {{.As}}{{end}} "{{.Path}}"
 {{end}}import "github.com/xinlaini/golibs/rpc"
 
@@ -22,7 +23,14 @@ func New{{.Name}}Client(ctrl *rpc.Controller, opts rpc.ClientOptions) (*{{.Name}
 }
 {{with $root := .}}{{range .Method}}
 func (c *{{$root.Name}}Client) {{.Name}}(ctx *rpc.ClientContext, req *{{.RequestProto}}) (*{{.ResponseProto}}, err) {
-	return c.ctrl.Call("{{.Name}}", 
+	pbResp, err := c.ctrl.Call("{{.Name}}", ctx, req, reflect.TypeOf((*{{.ResponseProto}})(nil)).Elem())
+	if err != nil {
+		return nil, err
+	}
+	if pbResp == nil {
+		return nil, nil
+	}
+	return pbResp.(*{{.ResponseProto}}), nil
 }
 {{end}}{{end}}
 `

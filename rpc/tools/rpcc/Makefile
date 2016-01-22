@@ -1,5 +1,8 @@
-protos:
-	cd proto && mkdir -p gen-go && protoc --proto_path=./ --go_out=./gen-go *.proto
+rpc:
+	make -f ../../Makefile precondition
 
-build: protos
+proto:
+	gopro rpc/tools/rpcc:def_proto
+
+build: rpc proto
 	go build -o ./rpcc

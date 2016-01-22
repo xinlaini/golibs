@@ -1,2 +1,2 @@
-pbgen:
+precondition:
 	gopro rpc:rpc_proto
