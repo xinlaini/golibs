@@ -7,6 +7,7 @@ import (
 
 	"gen/pb/rpc/example/say_proto"
 	"gen/pb/rpc/example/sing_proto"
+	"gen/rpc/rpc/example"
 
 	"github.com/golang/protobuf/proto"
 	"github.com/xinlaini/golibs/log"
@@ -55,13 +56,15 @@ func main() {
 	logger := xlog.NewConsoleLogger()
 
 	ctrl, err := rpc.NewController(rpc.Config{
-		Logger:   logger,
-		Services: map[string]interface{}{"Hello": &helloService{logger: logger}},
+		Logger: logger,
+		Services: map[string]rpc.ServiceConfig{
+			"Hello": {hello.HelloServiceType, &helloService{logger: logger}},
+		},
 	})
 	if err != nil {
-		logger.Fatal("Failed to create controller: %s", err)
+		logger.Fatalf("Failed to create controller: %s", err)
 	}
 	if err = ctrl.Serve(9090); err != nil {
-		logger.Fatal("Failed to start server: %s", err)
+		logger.Fatalf("Failed to start server: %s", err)
 	}
 }

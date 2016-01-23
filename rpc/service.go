@@ -29,7 +29,6 @@ var (
 type method struct {
 	requestType reflect.Type
 	body        reflect.Value
-	receiver    reflect.Value
 }
 
 type service struct {
@@ -114,7 +113,7 @@ func (svc *service) serveRequest(request *rpc_proto.Request, response *rpc_proto
 
 	ch := make(chan []reflect.Value)
 	go func() {
-		ch <- m.body.Call([]reflect.Value{m.receiver, reflect.ValueOf(ctx), requestPB})
+		ch <- m.body.Call([]reflect.Value{reflect.ValueOf(ctx), requestPB})
 	}()
 
 	select {
@@ -149,32 +148,37 @@ func isPBPtr(typ reflect.Type) bool {
 	return typ.Kind() == reflect.Ptr && typ.Implements(pbMessageType)
 }
 
-func newService(ctrl *Controller, name string, impl interface{}) (*service, error) {
+func newService(ctrl *Controller, name string, cfg *ServiceConfig) (*service, error) {
+	if cfg.Type.Kind() != reflect.Interface {
+		return nil, fmt.Errorf("'%s' is not an Interface kind", cfg.Type)
+	}
+
+	if !reflect.TypeOf(cfg.Impl).Implements(cfg.Type) {
+		return nil, fmt.Errorf("'%s' does not implement '%s'", reflect.TypeOf(cfg.Impl), cfg.Type)
+	}
+
 	svc := &service{
 		logger:  ctrl.logger,
 		methods: make(map[string]*method),
 		chLog:   make(chan [3][]byte),
 	}
 
-	typ := reflect.TypeOf(impl)
-	for i := 0; i < typ.NumMethod(); i++ {
-		m := typ.Method(i)
-		if m.PkgPath != "" {
-			// This is unexported method, ignore it.
-			continue
-		}
+	implValue := reflect.ValueOf(cfg.Impl)
+	for i := 0; i < cfg.Type.NumMethod(); i++ {
+		mName := cfg.Type.Method(i).Name
+		m := implValue.MethodByName(mName)
+		mType := m.Type()
 		// Validate method signature.
-		if m.Type.NumIn() != 3 || m.Type.In(1) != serverCtxPtrType || !isPBPtr(m.Type.In(2)) {
+		if mType.NumIn() != 2 || mType.In(0) != serverCtxPtrType || !isPBPtr(mType.In(1)) {
 			continue
 		}
-		if m.Type.NumOut() != 2 || !isPBPtr(m.Type.Out(0)) || m.Type.Out(1) != errorType {
+		if mType.NumOut() != 2 || !isPBPtr(mType.Out(0)) || mType.Out(1) != errorType {
 			continue
 		}
-		ctrl.logger.Infof("Will serve method '%s.%s'", name, m.Name)
-		svc.methods[m.Name] = &method{
-			requestType: m.Type.In(2).Elem(),
-			body:        m.Func,
-			receiver:    reflect.ValueOf(impl),
+		ctrl.logger.Infof("Will serve method '%s.%s'", name, mName)
+		svc.methods[mName] = &method{
+			requestType: mType.In(1).Elem(),
+			body:        m,
 		}
 	}
 	go svc.logLoop(ctrl.binaryLogDir, name)

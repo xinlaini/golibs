@@ -60,7 +60,7 @@ func main() {
 		Retry:        rpc.DefaultDialRetry,
 	})
 	if err != nil {
-		logger.Fatal("Failed to create client: %s", err)
+		logger.Fatalf("Failed to create client: %s", err)
 	}
 
 	runSay(logger, helloClient, nil)

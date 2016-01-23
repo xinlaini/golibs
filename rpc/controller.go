@@ -3,16 +3,22 @@ package rpc
 import (
 	"net/http"
 	"os"
+	"reflect"
 	"sync"
 
 	"github.com/xinlaini/golibs/log"
 )
 
+type ServiceConfig struct {
+	Type reflect.Type
+	Impl interface{}
+}
+
 type Config struct {
 	xlog.Logger
 	BinaryLogDir string
 	HTTPMux      *http.ServeMux
-	Services     map[string]interface{}
+	Services     map[string]ServiceConfig
 }
 
 type Controller struct {

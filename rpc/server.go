@@ -63,7 +63,7 @@ func (svr *server) handleConn(conn net.Conn) {
 			return
 		}
 		if _, err = conn.Write(responseBytes); err != nil {
-			svr.logger.Errorf("Failed to write %d bytes for response: %s", err)
+			svr.logger.Errorf("Failed to write %d bytes for response: %s", len(responseBytes), err)
 			return
 		}
 		if svc != nil {
@@ -103,28 +103,32 @@ func (svr *server) readRequest(conn net.Conn) []byte {
 	buf := bytes.NewBuffer(make([]byte, 0, 4))
 	var err error
 	if _, err = io.CopyN(buf, conn, 4); err != nil {
-		svr.logger.Errorf(
-			"Failed to read 4 bytes for request size from '%s': %s",
-			conn.RemoteAddr().String(), err)
+		if err != io.EOF {
+			svr.logger.Errorf(
+				"Failed to read 4 bytes for request size from '%s': %s",
+				conn.RemoteAddr().String(), err)
+		}
 		return nil
 	}
 	requestSize := binary.BigEndian.Uint32(buf.Bytes())
 	if _, err = io.CopyN(buf, conn, int64(requestSize)); err != nil {
-		svr.logger.Errorf(
-			"Failed to read %d bytes for request from '%s': %s",
-			conn.RemoteAddr().String(), err)
+		if err != io.EOF {
+			svr.logger.Errorf(
+				"Failed to read %d bytes for request from '%s': %s",
+				requestSize, conn.RemoteAddr().String(), err)
+		}
 		return nil
 	}
 	return buf.Bytes()
 }
 
-func newServer(ctrl *Controller, services map[string]interface{}) (*server, error) {
+func newServer(ctrl *Controller, services map[string]ServiceConfig) (*server, error) {
 	svr := &server{
 		logger:   ctrl.logger,
 		services: make(map[string]*service),
 	}
-	for name, impl := range services {
-		svc, err := newService(ctrl, name, impl)
+	for name, cfg := range services {
+		svc, err := newService(ctrl, name, &cfg)
 		if err != nil {
 			return nil, err
 		}

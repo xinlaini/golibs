@@ -7,7 +7,7 @@ protos:
 genrpc:
 	genrpc --out_dir=rpc/example $(PROTOROOT)/rpc/example/hello.svc.pb
 
-server: protos rpc
+server: protos genrpc rpc
 	cd server && go build -o ./server
 
 client: protos genrpc rpc
