@@ -10,16 +10,11 @@ import (
 )
 
 const (
-	flags     = log.Ldate | log.Ltime | log.Lmicroseconds
-	infoSign  = "[\U0001f3b8  "
-	errorSign = "[\U0001f6ab  "
-	fatalSign = "[\U0001f480  "
-	panicSign = "[\U0001f4a5  "
+	flags = log.Ldate | log.Ltime | log.Lmicroseconds
 )
 
 var (
-	DefaultLogger = NewLogger(os.Stdout, os.Stderr)
-	colorConsole  = flag.Bool("color_console", true, "Whether to print colored console log")
+	colorConsole = flag.Bool("color_console", true, "Whether to print colored console log")
 )
 
 // Logger interface.
@@ -58,10 +53,10 @@ func NewConsoleLogger() Logger {
 	}
 
 	return &impl{
-		linfo:   log.New(os.Stdout, "\x1b[1;32m"+infoSign, flags),
-		lerr:    log.New(os.Stderr, "\x1b[1;31m"+errorSign, flags),
-		lfatal:  log.New(os.Stderr, "\x1b[41;30m"+fatalSign, flags),
-		lpanic:  log.New(os.Stderr, "\x1b[43;30m"+panicSign, flags),
+		linfo:   log.New(os.Stdout, "\x1b[1;32m[", flags),
+		lerr:    log.New(os.Stderr, "\x1b[1;31m[", flags),
+		lfatal:  log.New(os.Stderr, "\x1b[1;35m[", flags),
+		lpanic:  log.New(os.Stderr, "\x1b[1;33m[", flags),
 		colored: true,
 	}
 }
