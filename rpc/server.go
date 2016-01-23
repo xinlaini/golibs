@@ -8,7 +8,7 @@ import (
 	"io"
 	"net"
 
-	"gen/pb/rpc"
+	"gen/pb/rpc/rpc_proto"
 
 	"github.com/golang/protobuf/proto"
 	"github.com/xinlaini/golibs/log"

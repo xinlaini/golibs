@@ -8,7 +8,7 @@ import (
 	"sync"
 	"time"
 
-	"gen/pb/rpc"
+	"gen/pb/rpc/rpc_proto"
 
 	"golang.org/x/net/context"
 

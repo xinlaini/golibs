@@ -14,7 +14,7 @@ import (
 	"sync"
 	"time"
 
-	"gen/pb/rpc"
+	"gen/pb/rpc/rpc_proto"
 
 	"github.com/golang/protobuf/proto"
 	"github.com/xinlaini/golibs/log"
@@ -89,6 +89,7 @@ func (c *Client) Call(
 	}
 	var err error
 	if requestPB != nil {
+		c.logger.Infof("%v, %v, %+v", requestPB != nil, requestPB == nil, requestPB)
 		request.RequestPb, err = proto.Marshal(requestPB)
 		if err != nil {
 			return nil, makeErrf("Failed to marshal method request: %s", err)
