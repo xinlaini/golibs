@@ -79,12 +79,12 @@ func (svc *service) serveRequest(request *rpc_proto.Request, response *rpc_proto
 	reqMeta := request.Metadata
 	var err error
 	if reqMeta.MethodName == nil {
-		response.Error = makePBErr("Request.Metadata is missing method_name")
+		response.Error = makeServerErr("Request.Metadata is missing method_name")
 		return
 	}
 	m, found := svc.methods[reqMeta.GetMethodName()]
 	if !found {
-		response.Error = makePBErrf(
+		response.Error = makeServerErrf(
 			"Method '%s.%s' is not found", reqMeta.GetServiceName(), reqMeta.GetMethodName())
 		return
 	}
@@ -94,7 +94,7 @@ func (svc *service) serveRequest(request *rpc_proto.Request, response *rpc_proto
 	} else {
 		requestPB = reflect.New(m.requestType)
 		if err = proto.Unmarshal(request.RequestPb, requestPB.Interface().(proto.Message)); err != nil {
-			response.Error = makePBErrf(
+			response.Error = makeServerErrf(
 				"Failed to unmarshal request for '%s.%s': %s",
 				reqMeta.GetServiceName(),
 				reqMeta.GetMethodName(),
@@ -122,7 +122,7 @@ func (svc *service) serveRequest(request *rpc_proto.Request, response *rpc_proto
 		if callResults[1].IsNil() {
 			if !callResults[0].IsNil() {
 				if response.ResponsePb, err = proto.Marshal(callResults[0].Interface().(proto.Message)); err != nil {
-					response.Error = makePBErrf(
+					response.Error = makeServerErrf(
 						"Failed to marshal response for '%s.%s': %s",
 						reqMeta.GetServiceName(),
 						reqMeta.GetMethodName(),
@@ -135,7 +135,7 @@ func (svc *service) serveRequest(request *rpc_proto.Request, response *rpc_proto
 			response.Error = proto.String(callResults[1].Interface().(error).Error())
 		}
 	case <-ctx.Done():
-		response.Error = makePBErrf(
+		response.Error = makeServerErrf(
 			"Method '%s.%s' timed out", reqMeta.GetServiceName(), reqMeta.GetMethodName())
 		return
 	}

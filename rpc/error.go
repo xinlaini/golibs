@@ -8,21 +8,30 @@ import (
 )
 
 const (
-	rpcErrPrefix = "[RPC_ERROR] "
+	serverPrefix = "[RPC_SERVER_ERROR] "
+	clientPrefix = "[RPC_CLIENT_ERROR] "
 )
 
-func makeErr(str string) error {
-	return errors.New(rpcErrPrefix + str)
+func makeErr(prefix, err string) error {
+	return errors.New(prefix + err)
 }
 
-func makePBErr(str string) *string {
-	return proto.String(makeErr(str).Error())
+func makeErrf(prefix, format string, v ...interface{}) error {
+	return errors.New(prefix + fmt.Sprintf(format, v...))
 }
 
-func makeErrf(format string, v ...interface{}) error {
-	return errors.New(rpcErrPrefix + fmt.Sprintf(format, v...))
+func makeClientErr(err string) error {
+	return makeErr(clientPrefix, err)
 }
 
-func makePBErrf(format string, v ...interface{}) *string {
-	return proto.String(makeErrf(format, v...).Error())
+func makeServerErr(err string) *string {
+	return proto.String(makeErr(serverPrefix, err).Error())
+}
+
+func makeClientErrf(format string, v ...interface{}) error {
+	return errors.New(clientPrefix + fmt.Sprintf(format, v...))
+}
+
+func makeServerErrf(format string, v ...interface{}) *string {
+	return proto.String(makeErrf(serverPrefix, format, v...).Error())
 }

@@ -88,16 +88,17 @@ func (c *Client) Call(
 		request.Metadata.TimeoutUs = proto.Int64(int64(deadline.Sub(time.Now())))
 	}
 	var err error
-	if requestPB != nil {
-		c.logger.Infof("%v, %v, %+v", requestPB != nil, requestPB == nil, requestPB)
+	// Here we must check the underlying value of requestPB for nil, rather than whether
+	// the proto.Message interface itself being nil.
+	if !reflect.ValueOf(requestPB).IsNil() {
 		request.RequestPb, err = proto.Marshal(requestPB)
 		if err != nil {
-			return nil, makeErrf("Failed to marshal method request: %s", err)
+			return nil, makeClientErrf("Failed to marshal method request: %s", err)
 		}
 	}
 	requestBytes, err := proto.Marshal(request)
 	if err != nil {
-		return nil, makeErrf("Failed to marshal RPC request: %s", err)
+		return nil, makeClientErrf("Failed to marshal RPC request: %s", err)
 	}
 	requestSize := make([]byte, 4)
 	binary.BigEndian.PutUint32(requestSize, uint32(len(requestBytes)))
@@ -110,7 +111,7 @@ func (c *Client) Call(
 
 	response := &rpc_proto.Response{}
 	if err = proto.Unmarshal(responseBytes[4:], response); err != nil {
-		return nil, makeErrf("Failed to unmarshal RPC response: %s", err)
+		return nil, makeClientErrf("Failed to unmarshal RPC response: %s", err)
 	}
 	ctx.Metadata = response.Metadata
 	if response.Error != nil {
@@ -122,7 +123,7 @@ func (c *Client) Call(
 	}
 	responsePB := reflect.New(responseType).Interface().(proto.Message)
 	if err = proto.Unmarshal(response.ResponsePb, responsePB); err != nil {
-		return nil, makeErrf("Failed to unmarshal method response: %s", err)
+		return nil, makeClientErrf("Failed to unmarshal method response: %s", err)
 	}
 	return responsePB, nil
 }
@@ -150,9 +151,9 @@ func (c *Client) log(requestSize, requestBytes, responseBytes []byte) {
 func (c *Client) runNetIO(ctx *ClientContext, requestSize, requestBytes []byte) ([]byte, error) {
 	select {
 	case <-c.closed:
-		return nil, makeErr("Client is closed")
+		return nil, makeClientErr("Client is closed")
 	case <-ctx.Done():
-		return nil, makeErr(ctx.Err().Error())
+		return nil, makeClientErr(ctx.Err().Error())
 	case entry := <-c.freeConns:
 		responseBytes, err := roundtrip(ctx, entry.conn, requestSize, requestBytes)
 		if err != nil {
@@ -339,23 +340,23 @@ func roundtrip(ctx *ClientContext, conn net.Conn, requestSize, requestBytes []by
 
 	var err error
 	if err = conn.SetDeadline(deadline); err != nil {
-		return nil, makeErr(err.Error())
+		return nil, makeClientErr(err.Error())
 	}
 	if _, err = conn.Write(requestSize); err != nil {
-		return nil, makeErrf("Failed to write 4 bytes for request size: %s", err)
+		return nil, makeClientErrf("Failed to write 4 bytes for request size: %s", err)
 	}
 	if _, err = conn.Write(requestBytes); err != nil {
-		return nil, makeErrf("Failed to write %d bytes for request: %s", err)
+		return nil, makeClientErrf("Failed to write %d bytes for request: %s", err)
 	}
 	buf := bytes.NewBuffer(make([]byte, 0, 4))
 	if _, err = io.CopyN(buf, conn, 4); err != nil {
-		return nil, makeErrf(
+		return nil, makeClientErrf(
 			"Failed to read 4 bytes for response size from '%s': %s",
 			conn.RemoteAddr().String(), err)
 	}
 	responseSize := binary.BigEndian.Uint32(buf.Bytes())
 	if _, err = io.CopyN(buf, conn, int64(responseSize)); err != nil {
-		return nil, makeErrf(
+		return nil, makeClientErrf(
 			"Failed to read %d bytes for response from '%s': %s",
 			conn.RemoteAddr().String(), err)
 	}

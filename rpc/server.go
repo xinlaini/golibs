@@ -78,21 +78,21 @@ func (svr *server) serveRequest(conn net.Conn, requestBytes []byte) (*rpc_proto.
 
 	var err error
 	if err = proto.Unmarshal(requestBytes, request); err != nil {
-		response.Error = makePBErrf("Failed to unmarshal request: %s", err)
+		response.Error = makeServerErrf("Failed to unmarshal request: %s", err)
 		return response, nil
 	}
 	if request.Metadata == nil {
-		response.Error = makePBErr("Request is missing metadata")
+		response.Error = makeServerErr("Request is missing metadata")
 		return response, nil
 	}
 	request.Metadata.ClientAddr = proto.String(conn.RemoteAddr().String())
 	if request.Metadata.ServiceName == nil {
-		response.Error = makePBErr("Request.Metadata is missing service_name")
+		response.Error = makeServerErr("Request.Metadata is missing service_name")
 		return response, nil
 	}
 	svc, found := svr.services[request.Metadata.GetServiceName()]
 	if !found {
-		response.Error = makePBErrf("Service '%s' is not found", request.Metadata.GetServiceName())
+		response.Error = makeServerErrf("Service '%s' is not found", request.Metadata.GetServiceName())
 		return response, nil
 	}
 	svc.serveRequest(request, response)
