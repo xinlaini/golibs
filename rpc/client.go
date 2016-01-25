@@ -88,9 +88,9 @@ func (c *Client) Call(
 		request.Metadata.TimeoutUs = proto.Int64(int64(deadline.Sub(time.Now())))
 	}
 	var err error
-	// Here we must check the underlying value of requestPB for nil, rather than whether
+	// Here we must check the underlying value of requestPB for nil, rather than just whether
 	// the proto.Message interface itself being nil.
-	if !reflect.ValueOf(requestPB).IsNil() {
+	if requestPB != nil && !reflect.ValueOf(requestPB).IsNil() {
 		request.RequestPb, err = proto.Marshal(requestPB)
 		if err != nil {
 			return nil, makeClientErrf("Failed to marshal method request: %s", err)
