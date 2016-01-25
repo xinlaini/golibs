@@ -187,29 +187,30 @@ func (c *Client) connectWithRetry(opts *ClientOptions) *connEntry {
 	// Retry loop for one connection.
 	sleep := opts.Retry.Sleep
 	for {
-		select {
-		case <-c.closed:
-			return nil
-		default:
-			conn, err := net.Dial("tcp", c.serviceAddr)
-			if err != nil {
-				c.logger.Errorf("Failed to dial to '%s', will retry after '%s'", c.serviceAddr, sleep.String())
-				time.Sleep(sleep)
+		conn, err := net.Dial("tcp", c.serviceAddr)
+		if err != nil {
+			c.logger.Errorf(
+				"Failed to dial to '%s' (error: %s), will retry after %s",
+				c.serviceAddr, err, sleep.String())
+			select {
+			case <-c.closed:
+				return nil
+			case <-time.After(sleep):
 				// Exponential backoff with cap.
 				if sleep = time.Duration(float64(sleep) * opts.Retry.Backoff); sleep > opts.Retry.MaxSleep {
 					sleep = opts.Retry.MaxSleep
 				}
 				continue
 			}
-			_, localPort, _ := net.SplitHostPort(conn.LocalAddr().String())
-			c.logger.Infof("Established connection from local port '%s' to '%s'", localPort, c.serviceAddr)
-			now := time.Now()
-			return &connEntry{
-				conn:           conn,
-				localPort:      localPort,
-				connectedSince: now,
-				idleSince:      now,
-			}
+		}
+		_, localPort, _ := net.SplitHostPort(conn.LocalAddr().String())
+		c.logger.Infof("Established connection from local port '%s' to '%s'", localPort, c.serviceAddr)
+		now := time.Now()
+		return &connEntry{
+			conn:           conn,
+			localPort:      localPort,
+			connectedSince: now,
+			idleSince:      now,
 		}
 	}
 }
