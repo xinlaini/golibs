@@ -128,7 +128,7 @@ func (svc *service) serveRequest(request *rpc_proto.Request, response *rpc_proto
 			if !callResults[0].IsNil() {
 				msg := callResults[0].Interface().(proto.Message)
 				if reqMeta.GetFlags()&uint32(rpc_proto.Flag_TEXT_PB_PAYLOAD) != 0 {
-					response.ResponsePb = []byte(proto.MarshalTextString(msg))
+					response.ResponsePb = []byte(msg.String())
 				} else if response.ResponsePb, err = proto.Marshal(msg); err != nil {
 					response.Error = makeServerErrf(
 						"Failed to marshal response for '%s.%s': %s",
