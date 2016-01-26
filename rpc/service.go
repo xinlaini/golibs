@@ -92,7 +92,13 @@ func (svc *service) serveRequest(request *rpc_proto.Request, response *rpc_proto
 		requestPB = reflect.Zero(reflect.PtrTo(m.requestType))
 	} else {
 		requestPB = reflect.New(m.requestType)
-		if err = proto.Unmarshal(request.RequestPb, requestPB.Interface().(proto.Message)); err != nil {
+		pbMsg := requestPB.Interface().(proto.Message)
+		if reqMeta.GetFlags()&uint32(rpc_proto.Flag_TEXT_PB_PAYLOAD) != 0 {
+			err = proto.UnmarshalText(string(request.RequestPb), pbMsg)
+		} else {
+			err = proto.Unmarshal(request.RequestPb, pbMsg)
+		}
+		if err != nil {
 			response.Error = makeServerErrf(
 				"Failed to unmarshal request for '%s.%s': %s",
 				reqMeta.GetServiceName(),
@@ -120,7 +126,10 @@ func (svc *service) serveRequest(request *rpc_proto.Request, response *rpc_proto
 	case callResults := <-ch:
 		if callResults[1].IsNil() {
 			if !callResults[0].IsNil() {
-				if response.ResponsePb, err = proto.Marshal(callResults[0].Interface().(proto.Message)); err != nil {
+				msg := callResults[0].Interface().(proto.Message)
+				if reqMeta.GetFlags()&uint32(rpc_proto.Flag_TEXT_PB_PAYLOAD) != 0 {
+					response.ResponsePb = []byte(proto.MarshalTextString(msg))
+				} else if response.ResponsePb, err = proto.Marshal(msg); err != nil {
 					response.Error = makeServerErrf(
 						"Failed to marshal response for '%s.%s': %s",
 						reqMeta.GetServiceName(),

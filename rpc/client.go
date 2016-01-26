@@ -74,27 +74,82 @@ func (c *Client) Call(
 	ctx *ClientContext,
 	requestPB proto.Message,
 	responseType reflect.Type) (proto.Message, error) {
+	var (
+		requestPBBytes  []byte
+		responsePBBytes []byte
+		err             error
+	)
+	// Here we must check the underlying value of requestPB for nil, rather than just whether
+	// the proto.Message interface itself being nil.
+	if requestPB != nil && !reflect.ValueOf(requestPB).IsNil() {
+		if requestPBBytes, err = proto.Marshal(requestPB); err != nil {
+			return nil, makeClientErrf("Failed to marshal method request: %s", err)
+		}
+	}
+	responsePBBytes, err = c.callInternal(methodName, ctx, requestPBBytes, 0)
+	if err != nil {
+		return nil, err
+	}
+	if responsePBBytes == nil {
+		return nil, nil
+	}
+	responsePB := reflect.New(responseType).Interface().(proto.Message)
+	if err = proto.Unmarshal(responsePBBytes, responsePB); err != nil {
+		return nil, makeClientErrf("Failed to unmarshal method response: %s", err)
+	}
+	return responsePB, nil
+}
+
+func (c *Client) CallWithTextPB(methodName string, ctx *ClientContext, requestPB *string) (*string, error) {
+	var (
+		requestPBBytes  []byte
+		responsePBBytes []byte
+		err             error
+	)
+	if requestPB != nil {
+		requestPBBytes = []byte(*requestPB)
+	}
+	responsePBBytes, err = c.callInternal(methodName, ctx, requestPBBytes, uint32(rpc_proto.Flag_TEXT_PB_PAYLOAD))
+	if err != nil {
+		return nil, err
+	}
+	if responsePBBytes == nil {
+		return nil, nil
+	}
+	return proto.String(string(responsePBBytes)), nil
+}
+
+func (c *Client) Close() {
+	close(c.closed)
+	<-c.connectLoopDone
+	<-c.logLoopDone
+
+	// Close all the connections.
+	c.mtxEntries.Lock()
+	for _, entry := range c.entries {
+		c.logger.Infof("Closing connection from local port '%s' to '%s'", entry.localPort, c.serviceAddr)
+		entry.conn.Close()
+	}
+	c.mtxEntries.Unlock()
+
+	c.logger.Infof("Client for '%s' to '%s' is closed", c.serviceName, c.serviceAddr)
+}
+
+func (c *Client) callInternal(methodName string, ctx *ClientContext, requestPB []byte, flags uint32) ([]byte, error) {
 	request := &rpc_proto.Request{
 		Metadata: &rpc_proto.RequestMetadata{
 			ClientJobName:   proto.String(os.Args[0]),
 			ClientRequestId: proto.String(fmt.Sprintf("%x", time.Now().UnixNano())),
 			ServiceName:     proto.String(c.serviceName),
 			MethodName:      proto.String(methodName),
+			Flags:           proto.Uint32(flags),
 		},
+		RequestPb: requestPB,
 	}
 	// Propagate the deadline, if one is set.
 	deadline, ok := ctx.Deadline()
 	if ok {
 		request.Metadata.TimeoutUs = proto.Int64(int64(deadline.Sub(time.Now())))
-	}
-	var err error
-	// Here we must check the underlying value of requestPB for nil, rather than just whether
-	// the proto.Message interface itself being nil.
-	if requestPB != nil && !reflect.ValueOf(requestPB).IsNil() {
-		request.RequestPb, err = proto.Marshal(requestPB)
-		if err != nil {
-			return nil, makeClientErrf("Failed to marshal method request: %s", err)
-		}
 	}
 	requestBytes, err := proto.Marshal(request)
 	if err != nil {
@@ -118,30 +173,7 @@ func (c *Client) Call(
 		// Copy the response error verbatim.
 		return nil, errors.New(response.GetError())
 	}
-	if response.ResponsePb == nil {
-		return nil, nil
-	}
-	responsePB := reflect.New(responseType).Interface().(proto.Message)
-	if err = proto.Unmarshal(response.ResponsePb, responsePB); err != nil {
-		return nil, makeClientErrf("Failed to unmarshal method response: %s", err)
-	}
-	return responsePB, nil
-}
-
-func (c *Client) Close() {
-	close(c.closed)
-	<-c.connectLoopDone
-	<-c.logLoopDone
-
-	// Close all the connections.
-	c.mtxEntries.Lock()
-	for _, entry := range c.entries {
-		c.logger.Infof("Closing connection from local port '%s' to '%s'", entry.localPort, c.serviceAddr)
-		entry.conn.Close()
-	}
-	c.mtxEntries.Unlock()
-
-	c.logger.Infof("Client for '%s' to '%s' is closed", c.serviceName, c.serviceAddr)
+	return response.ResponsePb, nil
 }
 
 func (c *Client) log(requestSize, requestBytes, responseBytes []byte) {
